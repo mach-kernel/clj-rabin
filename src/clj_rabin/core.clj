@@ -1,61 +1,51 @@
-(ns clj-rabin.core)
+(ns clj-rabin.core
+  (:require [clojure.math :as math]))
 
-; alt; openssl prime -generate -bits n
-; https://github.com/moinakg/pcompress/blob/c6e779c40041b7bb46259e9806fa92b20c7b78fb/rabin/rabin_dedup.h#L76
-(def RAB-PRIME
-  153191)
+(defn window-pow
+  "pow = p^window-sz % q"
+  [{:keys [window-size prime q]}]
+  (-> (math/pow prime window-size)
+      (mod q)))
 
-(def RAB-MOD
-  101)
-
-(defn with-outbyte
-  "Take a partitioned seq of bytes and weave the byte leaving
-  the sliding window at each step, e.g.
-  [1 2 3 4 5] with window size 2:
-  [[nil [1 2]] [1 [2 3] ...]"
-  [out-byte partitioned-bytes]
-  (lazy-seq
-    (when-let [[p & ps] partitioned-bytes]
-      (cons [out-byte p] (with-outbyte (first p) ps)))))
-
-(defn windowed-with-outbyte
-  "Partition bytes into window-sz interleaved with the previous
-  window's out-byte"
-  [^Integer window-sz ^bytes bs]
-  (->> bs
-       (partition window-sz 1 [:pad])
-       (with-outbyte nil)))
+(defn poly-hash
+  "Compute the polynomial hash for a window
+  P^w*a[i] + P^w-1[i+1] + ..."
+  [{:keys [window-size prime q]} ^bytes bs]
+  (let [hash (reduce (fn [acc i]
+                       (-> (math/pow prime (- (dec window-size) i))
+                           (* (nth bs i))
+                           (+ acc)))
+                     0
+                     (range window-size))]
+    (mod hash q)))
 
 (defn rolling-hash-seq
-  "Given a window-size, Rabin polynomial constant, modulus, and windowed
-  array bufs, emit a sequence of Rabin hashes"
-  ([win-sz rab-p rab-m win-bufs]
-   (let [pow (mod (Math/pow rab-p win-sz) rab-m)]
-     (rolling-hash-seq 0 pow rab-p rab-m win-bufs)))
-  ([rolling-hash pow rab-p rab-m win-bufs]
-   (lazy-seq
-     (when-let [[[out-byte win] & r] win-bufs]
-       (let [in-byte (if (number? (last win))
-                       (last win)
-                       0)
-             new-hash (- (+ (* rolling-hash rab-p)
-                            in-byte)
-                         (* (if (number? out-byte)
-                              out-byte
-                              0) pow))
-             ; i.e. avoid overflows
-             new-hash (mod new-hash rab-m)]
-         (cons new-hash (rolling-hash-seq new-hash pow rab-p rab-m r)))))))
+  [{:keys [window-size prime q] :as ctx} ^bytes bs]
+  (let [window-size (if (>= window-size (alength bs))
+                      (dec (alength bs))
+                      window-size)
+        pow (window-pow ctx)
+        hashes (reductions
+                 (fn [acc i]
+                   (let [out-byte (nth bs (- i window-size))
+                         in-byte (nth bs i)]
+                     (-> (* acc prime)
+                         (+ in-byte)
+                         (- (* out-byte pow))
+                         (mod q))))
+                 (poly-hash ctx bs)
+                 (range window-size (alength bs)))]
+    (->> (interleave (range (dec window-size) (alength bs)) hashes)
+         (partition-all 2))))
 
 (comment
-  ; find common substrings in O(n)
-  (let [some-data "abcdefghabcdefzz5"
-        window-size 3
-        windowed (windowed-with-outbyte window-size (.getBytes some-data))
-        hash-seq (rolling-hash-seq window-size RAB-PRIME RAB-MOD windowed)
-        char-seq (->> (.getBytes some-data)
-                      (partition window-size 1 [0])
-                      (map #(String. (byte-array %))))]
-    (->> (interleave hash-seq char-seq)
-         (partition-all 2)
-         (group-by first))))
+  ; find common windows in O(n)
+  (let [some-data (.getBytes "abcdefghabcdefzabcdz5")
+        {:keys [window-size] :as rabin-ctx} {:window-size 3 :prime 153191 :q 139907}
+        hash-seq (rolling-hash-seq rabin-ctx some-data)
+        groups (->> (group-by last hash-seq)
+                    (into {} (map (fn [[k v]]
+                                    [k (map (comp inc first) v)]))))]
+    (map (fn [[h is]]
+           [h (map #(String. (byte-array (subvec (vec some-data) (- % window-size) %))) is)])
+         groups)))
