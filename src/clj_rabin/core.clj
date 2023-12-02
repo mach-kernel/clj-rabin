@@ -1,66 +1,68 @@
 (ns clj-rabin.core)
 
-; alt; openssl prime -generate -bits n
-; https://github.com/moinakg/pcompress/blob/c6e779c40041b7bb46259e9806fa92b20c7b78fb/rabin/rabin_dedup.h#L76
-(def RAB-PRIME
-  153191)
-
-(def RAB-MOD
-  101)
-
-(defn with-outbyte
+(defn interleave-outbyte
   "Take a partitioned seq of bytes and weave the byte leaving
-  the sliding window at each step, e.g.
+  the front of the sliding window at each step, e.g.
   [1 2 3 4 5] with window size 2:
   [[nil [1 2]] [1 [2 3]] ...]"
   [out-byte partitioned-bytes]
   (lazy-seq
     (when-let [[p & ps] partitioned-bytes]
-      (cons [out-byte p] (with-outbyte (first p) ps)))))
+      (cons [out-byte p] (interleave-outbyte (first p) ps)))))
 
-(defn windowed-with-outbyte
-  "Partition bytes into window-sz interleaved with the previous
-  window's out-byte"
-  [^Integer window-sz ^bytes bs]
+(defn outbyte-windowed
+  "Given a byte array, emit a lazy seq of each sliding window as
+  [prev-byte [bytes...]]..."
+  [^Integer window-size ^bytes bs]
   (->> bs
-       (partition window-sz 1 [0])
-       (with-outbyte 0)))
+       (partition window-size 1 [0])
+       (interleave-outbyte 0)))
 
-(defn rabin-hash
-  "Given pow, a Rabin constant, in/out bytes, and an optional previous value,
-  compute the next Rabin hash"
-  [{:keys [pow rab-p rab-m]} out-byte in-byte & [prev-hash]]
-  (let [prev-hash (or prev-hash 0)
-        new-hash (- (+ (* prev-hash rab-p)
-                       in-byte)
-                    (* out-byte pow))]
-    ; i.e. avoid overflows
-    (mod new-hash rab-m)))
+(defn pow-mod
+  "b^e mod q each step"
+  [q b e]
+  (->> (repeat b)
+       (take e)
+       (reduce #(mod (* %1 %2) q) 1)))
+
+(defn hash-window
+  "Hash bytes using base p and modulus q"
+  [{:keys [p q]} bs]
+  (reduce (fn [prev b]
+           (mod (+ (* prev p)
+                   (int b)) q))
+    0 bs))
+
+(defn roll-hash
+  "Given a previous hash value, apply the current byte and remove the out-byte"
+  [{:keys [pow p q]} prev-hash in-byte out-byte]
+  ; ((prev-hash * p) - (pow * b[0]) + b[n]) % q
+  (-> (* p prev-hash)
+      (- (* pow out-byte))
+      (+ in-byte)
+      (mod q)))
 
 (defn rolling-hash-seq
-  "Given a window-size, Rabin polynomial constant, modulus, and windowed
-  array bufs, emit a sequence of Rabin hashes"
-  ([{:keys [window-size rab-p rab-m] :as ctx} windows]
-   (rolling-hash-seq
-     (assoc ctx :pow (mod (Math/pow rab-p window-size)
-                          rab-m))
-     0
-     windows))
+  "Given a context of Rabin constants and some bytes, emit a seq of rolling
+  rabin hashes"
+  ([{:keys [p q window-size] :as ctx} ^bytes bs]
+   (let [[[_ window] & windows] (outbyte-windowed window-size bs)]
+     (rolling-hash-seq
+       (assoc ctx :pow (pow-mod q p window-size))
+       (hash-window ctx window)
+       windows)))
   ([ctx prev-hash windows]
    (lazy-seq
      (when (and ctx windows)
        (let [[[out-byte window] & r] windows
-             next-hash (rabin-hash
-                         ctx out-byte (last window) prev-hash)]
+             next-hash (roll-hash ctx prev-hash (last window) out-byte)]
          (cons next-hash (rolling-hash-seq ctx next-hash r)))))))
 
 (comment
-  ; find common substrings in O(n)
-  (let [some-data "abcdefghabcdefzz5"
-        rabin-ctx {:window-size 3 :rab-p RAB-PRIME :rab-m RAB-MOD}
-        windowed (windowed-with-outbyte (:window-size rabin-ctx)
-                                        (.getBytes some-data))
-        hash-seq (rolling-hash-seq rabin-ctx windowed)
+  ; find common windows in O(n)
+  (let [some-data "abcdefghabcdefzabcdz5"
+        rabin-ctx {:window-size 2 :p 256 :q 153191}
+        hash-seq (rolling-hash-seq rabin-ctx (.getBytes some-data))
         char-seq (->> (.getBytes some-data)
                       (partition (:window-size rabin-ctx) 1 [0])
                       (map #(String. (byte-array %))))]
