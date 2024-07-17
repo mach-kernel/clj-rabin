@@ -1,6 +1,12 @@
 (ns clj-rabin.core
   (:require [clojure.math :as math]))
 
+(def default-rabin-ctx
+  {; should be close to the number of possible values, 257 is closest to 255
+   :prime 257
+   ; modulus, should also be prime, suggested via moinakg via SREP tool
+   :q     153191})
+
 (defn window-pow
   "pow = p^window-sz % q"
   [{:keys [window-size prime q]}]
@@ -27,7 +33,7 @@
                       (dec (alength bs))
                       window-size)
         pow (window-pow ctx)
-        ; NOTE: reductions emits the initial value, so we do not have to cons
+                        ; NOTE: reductions emits the initial value, so we do not have to cons
         ; the first window's hash and index to the list
         hashes (reductions
                  (fn [acc i]
@@ -46,7 +52,7 @@
 (comment
   ; find common windows in O(n)
   (let [some-data (.getBytes "abcdefghabcdefzabcdz5")
-        {:keys [window-size] :as rabin-ctx} {:window-size 3 :prime 153191 :q 139907}
+        {:keys [window-size] :as rabin-ctx} (assoc default-rabin-ctx :window-size 6)
         hash-seq (rolling-hash-seq rabin-ctx some-data)
         groups (->> (group-by last hash-seq)
                     (into {} (map (fn [[k v]]

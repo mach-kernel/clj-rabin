@@ -10,3 +10,5 @@ A Clojure implementation of a rolling Rabin hash + chunker.
 - [Horner's method](https://en.wikipedia.org/wiki/Horner%27s_method)
 - [how does rabin-karp choose breakpoint in variable-length chunking? (SO)](https://stackoverflow.com/questions/67101553/how-does-rabin-karp-choose-breakpoint-in-variable-length-chunking)
   - [TTTD Paper](https://www.hpl.hp.com/techreports/2005/HPL-2005-30R1.pdf)
+- [Why is Rabin base a prime?](https://cs.stackexchange.com/a/28024)
+- [Choosing modulus in Rabin-Karp](https://cs.stackexchange.com/questions/10174/how-do-we-find-the-optimal-modulus-q-in-rabin-karp-algorithm)
