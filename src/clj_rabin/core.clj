@@ -20,11 +20,15 @@
     (mod hash q)))
 
 (defn rolling-hash-seq
+  "Given a rabin context and some bytes, emit a seq of rabin hashes at
+  each index beginning from the end of the first sliding window"
   [{:keys [window-size prime q] :as ctx} ^bytes bs]
   (let [window-size (if (>= window-size (alength bs))
                       (dec (alength bs))
                       window-size)
         pow (window-pow ctx)
+        ; NOTE: reductions emits the initial value, so we do not have to cons
+        ; the first window's hash and index to the list
         hashes (reductions
                  (fn [acc i]
                    (let [out-byte (nth bs (- i window-size))
@@ -35,6 +39,7 @@
                          (mod q))))
                  (poly-hash ctx bs)
                  (range window-size (alength bs)))]
+    ; ...and that is why we dec here
     (->> (interleave (range (dec window-size) (alength bs)) hashes)
          (partition-all 2))))
 
