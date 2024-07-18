@@ -2,7 +2,14 @@
 
 A Clojure implementation of a rolling Rabin hash + chunker.
 
-#### Resources
+#### Hacking
+
+```
+# Download + inflate Enron dataset
+bb enron
+```
+
+#### Resources / Credits
 
 - [moinakg pcompress article](https://moinakg.wordpress.com/tag/rabin-fingerprint/).
 - [ncona](https://ncona.com/2017/06/the-rabin-karp-algorithm/)

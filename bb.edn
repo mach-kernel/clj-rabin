@@ -1,0 +1,6 @@
+  {:tasks {init-data (shell "mkdir -p data")
+           enron (do
+                   (run 'init-data)
+                   (println "Downloading and inflating Enron dataset")
+                   (shell "curl -vL http://www.cs.cmu.edu/~enron/enron_mail_20150507.tar.gz -o data/enron.tar.gz")
+                   (shell "tar -xvf data/enron.tar.gz -C data"))}}

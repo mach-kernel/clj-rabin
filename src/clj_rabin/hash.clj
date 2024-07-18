@@ -1,5 +1,6 @@
 (ns clj-rabin.hash
-  (:require [clojure.math :as math])
+  (:require [clojure.java.io :as io]
+            [clojure.math :as math])
   (:import (java.io BufferedInputStream InputStream)
            (java.util Arrays)))
 
@@ -8,7 +9,7 @@
    q (modulus)        : should be sufficiently large to avoid collisions, also prime
    window-size (bytes): can be anything (but as little as 16 bytes is 'enough')"
   {:prime       257
-   :q           (Integer/MAX_VALUE)
+   :q           153191                                      ;Integer/MAX_VALUE
    :window-size 32})
 
 (defn window-pow
@@ -34,9 +35,10 @@
   each index beginning from the end of the first window"
   ([^bytes bs]
    (byte-array->hash-seq default-ctx bs))
-  ([{:keys [window-size prime q] :as ctx} ^bytes bs]
-   (let [window-size (if (>= window-size (alength bs))
-                       (dec (alength bs))
+  ([{:keys [window-size prime q buf-size] :as ctx} ^bytes bs]
+   (let [buf-size (or buf-size (alength bs))
+         window-size (if (>= window-size (alength bs))
+                       (dec buf-size)
                        window-size)
          pow (window-pow ctx)
          ; NOTE: reductions emits the initial value, so we do not have to cons
@@ -50,10 +52,24 @@
                           (- (* out-byte pow))
                           (mod q))))
                   (poly-hash ctx bs)
-                  (range window-size (alength bs)))]
+                  (range window-size buf-size))]
      ; ...and that is why we dec here
-     (->> (interleave (range (dec window-size) (alength bs)) hashes)
+     (->> (interleave (range (dec window-size) buf-size) hashes)
           (partition-all 2)))))
+
+(comment
+  ; find repeating sequences of an arbitrary window size
+  (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)
+        hash-seq (byte-array->hash-seq rabin-ctx some-data)
+        groups (->> (group-by last hash-seq)
+                    (into {} (map (fn [[k v]]
+                                    [k (map (comp inc first) v)]))))]
+    (map (fn [[h is]]
+           [h
+            (Integer/toBinaryString h)
+            (map #(String. (byte-array (subvec (vec some-data) (- % window-size) %))) is)])
+         groups)))
 
 (defn input-stream->hash-seq
   "Given an arbitrarily large sequence, emit a sequence of rabin hashes at
@@ -70,20 +86,19 @@
      (lazy-seq
        (let [buf (byte-array buf-size)
              bytes-read (.read bis buf 0 buf-size)]
-         (concat (->> (Arrays/copyOfRange buf 0 bytes-read)
-                   (byte-array->hash-seq)
-                   (map (fn [[i h]]
-                          [(+ pos i) h])))
+         (concat (->> buf
+                      (byte-array->hash-seq (assoc default-ctx :buf-size bytes-read))
+                      (map (fn [[i h]]
+                             [(+ pos i) h])))
                  (input-stream->hash-seq bis (+ pos bytes-read) opts)))))))
 
 (comment
-  ; find common windows in O(n)
-  (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)
-        hash-seq (byte-array->hash-seq rabin-ctx some-data)
-        groups (->> (group-by last hash-seq)
-                    (into {} (map (fn [[k v]]
-                                    [k (map (comp inc first) v)]))))]
-    (map (fn [[h is]]
-           [h (Integer/toBinaryString h) (map #(String. (byte-array (subvec (vec some-data) (- % window-size) %))) is)])
-         groups)))
+  (require '[clojure.java.io :as io])
+  (import '(java.io File))
+  (let [file (->> (file-seq (io/file "data/maildir"))
+                  (filter File/isFile)
+                  (rand-nth))
+        hashes (vec (input-stream->hash-seq (io/input-stream file) {}))
+        groups (group-by last hashes)]
+    {:chunks (count hashes)
+     :dedups (count groups)}))
