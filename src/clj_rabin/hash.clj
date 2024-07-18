@@ -1,8 +1,6 @@
 (ns clj-rabin.hash
-  (:require [clojure.java.io :as io]
-            [clojure.math :as math])
-  (:import (java.io BufferedInputStream InputStream)
-           (java.util Arrays)))
+  (:require [clojure.java.io :as io])
+  (:import (java.io BufferedInputStream InputStream)))
 
 (def default-ctx
   "prime              : should be close to the alphabet size
@@ -96,14 +94,3 @@
                       (map (fn [[i h]]
                              [(+ pos i) h])))
                  (input-stream->hash-seq bis (+ pos bytes-read) opts)))))))
-
-(comment
-  (require '[clojure.java.io :as io])
-  (import '(java.io File))
-  (let [file (->> (file-seq (io/file "data/maildir"))
-                  (filter File/isFile)
-                  (rand-nth))
-        hashes (vec (input-stream->hash-seq (io/input-stream file) {}))
-        groups (group-by last hashes)]
-    {:chunks (count hashes)
-     :dedups (count groups)}))
