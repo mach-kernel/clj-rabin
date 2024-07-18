@@ -12,10 +12,14 @@
    :q           153191                                      ;Integer/MAX_VALUE
    :window-size 32})
 
+(defn bigint-pow
+  [a b]
+  (reduce * (repeat b (bigint a))))
+
 (defn window-pow
   "pow = p^window-sz % q"
   [{:keys [window-size prime q]}]
-  (-> (math/pow prime window-size)
+  (-> (bigint-pow prime window-size)
       (mod q)))
 
 (defn poly-hash
@@ -23,7 +27,7 @@
   P^w*a[i] + P^w-1[i+1] + ..."
   [{:keys [window-size prime q]} ^bytes bs]
   (let [hash (reduce (fn [acc i]
-                       (-> (math/pow prime (- (dec window-size) i))
+                       (-> (bigint-pow prime (- (dec window-size) i))
                            (* (nth bs i))
                            (+ acc)))
                      0
@@ -35,8 +39,9 @@
   each index beginning from the end of the first window"
   ([^bytes bs]
    (byte-array->hash-seq default-ctx bs))
-  ([{:keys [window-size prime q buf-size] :as ctx} ^bytes bs]
-   (let [buf-size (or buf-size (alength bs))
+  ([ctx ^bytes bs]
+   (let [{:keys [window-size prime q buf-size] :as ctx} (merge default-ctx ctx)
+         buf-size (or buf-size (alength bs))
          window-size (if (>= window-size (alength bs))
                        (dec buf-size)
                        window-size)
