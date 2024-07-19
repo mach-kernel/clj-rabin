@@ -1,6 +1,7 @@
 (ns clj-rabin.protocols
-  (:require [clj-rabin.hash :as r])
-  (:import [java.io BufferedInputStream InputStream]))
+  (:require [clj-rabin.hash :as r]
+            [clojure.java.io :as io])
+  (:import [java.io BufferedInputStream File InputStream]))
 
 (defprotocol RabinHashable
   (-rabin-hash-seq [this ctx] "Returns a seq of [[]bindex rabin-hash] of this"))
@@ -50,3 +51,26 @@
   {:-rabin-hash-seq
    (fn [^InputStream this ctx]
      (-rabin-hash-seq (BufferedInputStream. this) ctx))})
+
+(extend File
+  RabinHashable
+  {:-rabin-hash-seq
+   (fn [^File this ctx]
+     (-rabin-hash-seq (io/input-stream this) ctx))})
+
+(extend String
+  RabinHashable
+  {:-rabin-hash-seq
+   (fn [^String this ctx]
+     (let [f (io/file this)]
+       (cond
+         (not (.exists f))
+         (-rabin-hash-seq (.getBytes this) ctx)
+
+         (.isFile f)
+         (-rabin-hash-seq f ctx)
+
+         ;; todo: handle directory traversal. i'm too dumb
+         ;;       at the moment to think of the best output
+         ;;       format for this
+         :else nil)))})
