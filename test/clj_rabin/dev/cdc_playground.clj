@@ -72,7 +72,9 @@
   (def chunks
     (atom nil))
 
-  (load-dataset! "data/raga" chunks)
+  (set! *unchecked-math* true)
+  (with-redefs [*unchecked-math* true]
+    (load-dataset! "data/natural_images" chunks))
 
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)

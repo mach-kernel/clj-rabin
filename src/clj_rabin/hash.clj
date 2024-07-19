@@ -6,39 +6,41 @@
   "prime              : should be close to the alphabet size
    q (modulus)        : should be sufficiently large to avoid collisions, also prime
    window-size (bytes): can be anything (but as little as 16 bytes is 'enough')"
-  {:prime       257
-   :q           153191                                      ;Integer/MAX_VALUE
-   :window-size 16})
+  {:prime       (long 257)
+   :q           (long 153191)                                      ;Integer/MAX_VALUE
+   :window-size (int 16)})
 
-(defn bigint-pow
-  [a b]
-  (reduce * (repeat b (bigint a))))
+(defn long-pow
+  ^long
+  [^long a ^long b]
+  (reduce unchecked-multiply 1 (repeat b a)))
 
 (defn lsb-zero?
   "Are the bottom n bits 0?"
-  [hash n]
-  (let [hash (int hash)]
-    (-> hash
-        (bit-shift-right n)
-        (bit-shift-left n)
-        (bit-and hash)
-        (= hash))))
+  [^long hash ^Integer n]
+  (-> hash
+      (bit-shift-right ^long n)
+      (bit-shift-left ^long n)
+      (bit-and ^long hash)
+      (= hash)))
 
 (defn window-pow
   "pow = p^window-sz % q"
-  [{:keys [window-size prime q]}]
-  (-> (bigint-pow prime window-size)
+  ^long
+  [{:keys [window-size ^long prime ^long q]}]
+  (-> (long-pow prime window-size)
       (mod q)))
 
 (defn poly-hash
   "Compute the polynomial hash for a window
   P^w*a[i] + P^w-1[i+1] + ..."
-  [{:keys [window-size prime q]} ^bytes bs]
-  (let [hash (reduce (fn [acc i]
-                       (-> (bigint-pow prime (- (dec window-size) i))
-                           (* (nth bs i))
+  ^long
+  [{:keys [^long window-size ^long prime ^long q]} ^bytes bs]
+  (let [hash (reduce (fn [^long acc ^long i]
+                       (-> (long-pow prime (- (dec window-size) i))
+                           (* ^byte (nth bs i))
                            (+ acc)))
-                     0
+                     (long 0)
                      (range window-size))]
     (mod hash q)))
 
@@ -54,17 +56,17 @@
   ([^bytes bs]
    (byte-array->hash-seq default-ctx bs))
   ([ctx ^bytes bs]
-   (let [{:keys [window-size prime q buf-size] :as ctx} (merge default-ctx ctx)
-         buf-size (or buf-size (alength bs))
-         window-size (if (>= window-size (alength bs))
-                       (dec buf-size)
-                       window-size)
+   (let [{:keys [^long window-size ^long prime ^long q ^Integer buf-size] :as ctx} (merge default-ctx ctx)
+         ^long buf-size (or buf-size (alength bs))
+         ^long window-size (if (>= window-size (long (alength bs)))
+                             (dec buf-size)
+                             window-size)
          pow (window-pow ctx)]
      ; NOTE: reductions emits the first 'init' window too
      (reductions
-       (fn [[_ acc] i]
-         (let [out-byte (nth bs (- i window-size))
-               in-byte (nth bs i)]
+       (fn [[_ ^long acc] ^long i]
+         (let [^byte out-byte (nth bs (- i window-size))
+               ^byte in-byte (nth bs i)]
            [i (-> (* acc prime)
                   (+ in-byte)
                   (- (* out-byte pow))
@@ -90,7 +92,7 @@
 
   ; find repeating sequences of an arbitrary window size
   (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)
+        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 3)
         hash-seq (byte-array->hash-seq rabin-ctx some-data)
         groups (->> (group-by last hash-seq)
                     (into {} (map (fn [[k v]]
@@ -116,7 +118,7 @@
        (BufferedInputStream. input-stream))
      0
      opts))
-  ([^BufferedInputStream bis ^Long pos {:keys [buf-size] :or {buf-size 1000000} :as opts}]
+  ([^BufferedInputStream bis ^long pos {:keys [buf-size] :or {buf-size 1000000} :as opts}]
    (when (pos? (.available bis))
      (lazy-seq
        (let [buf (byte-array buf-size)
