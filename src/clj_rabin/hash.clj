@@ -1,6 +1,7 @@
 (ns clj-rabin.hash
   (:require [clojure.java.io :as io])
-  (:import (java.io BufferedInputStream InputStream)))
+  (:import (clojure.lang PersistentVector)
+           (java.io BufferedInputStream InputStream)))
 
 (def default-ctx
   "prime              : should be close to the alphabet size
@@ -14,6 +15,14 @@
   ^long
   [^long a ^long b]
   (reduce unchecked-multiply 1 (repeat b a)))
+
+(def range-vec
+  (memoize (fn
+             ^PersistentVector
+             [s & [e]]
+             (into [] (if e
+                        (range s e)
+                        (range s))))))
 
 (defn lsb-zero?
   "Are the bottom n bits 0?"
@@ -41,7 +50,7 @@
                            (* ^byte (nth bs i))
                            (+ acc)))
                      (long 0)
-                     (range window-size))]
+                     (range-vec window-size))]
     (mod hash q)))
 
 (defn byte-array->hash-seq
@@ -73,7 +82,7 @@
                   (mod q))]))
        ; the first window starts at len(window_sz) - 1
        [(dec window-size) (poly-hash ctx bs)]
-       (range window-size buf-size)))))
+       (range-vec window-size buf-size)))))
 
 (comment
 
