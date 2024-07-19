@@ -59,31 +59,34 @@
          window-size (if (>= window-size (alength bs))
                        (dec buf-size)
                        window-size)
-         pow (window-pow ctx)
-         ; NOTE: reductions emits the initial value, so we do not have to cons
-         ; the first window's hash and index to the list
-         hashes (reductions
-                  (fn [acc i]
-                    (let [out-byte (nth bs (- i window-size))
-                          in-byte (nth bs i)]
-                      (-> (* acc prime)
-                          (+ in-byte)
-                          (- (* out-byte pow))
-                          (mod q))))
-                  (poly-hash ctx bs)
-                  (range window-size buf-size))]
-     ; ...and that is why we dec here
-     (->> (interleave (range (dec window-size) buf-size) hashes)
-          (partition-all 2)))))
+         pow (window-pow ctx)]
+     ; NOTE: reductions emits the first 'init' window too
+     (reductions
+       (fn [[_ acc] i]
+         (let [out-byte (nth bs (- i window-size))
+               in-byte (nth bs i)]
+           [i (-> (* acc prime)
+                  (+ in-byte)
+                  (- (* out-byte pow))
+                  (mod q))]))
+       ; the first window starts at len(window_sz) - 1
+       [(dec window-size) (poly-hash ctx bs)]
+       (range window-size buf-size)))))
 
 (comment
+
   (use 'criterium.core)
+
   (with-progress-reporting
     (quick-bench
-      (let [file (->> (file-seq (io/file "data/maildir"))
-                      (filter File/isFile)
-                      (rand-nth))]
-        (chunk-input-stream (io/input-stream file)))))
+      (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+            {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
+        (doall (byte-array->hash-seq rabin-ctx some-data)))))
+
+  (dotimes [_ 10000]
+    (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+          {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
+      (doall (byte-array->hash-seq rabin-ctx some-data))))
 
   ; find repeating sequences of an arbitrary window size
   (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
