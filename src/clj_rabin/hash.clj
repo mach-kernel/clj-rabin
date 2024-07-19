@@ -8,11 +8,21 @@
    window-size (bytes): can be anything (but as little as 16 bytes is 'enough')"
   {:prime       257
    :q           153191                                      ;Integer/MAX_VALUE
-   :window-size 32})
+   :window-size 16})
 
 (defn bigint-pow
   [a b]
   (reduce * (repeat b (bigint a))))
+
+(defn lsb-zero?
+  "Are the bottom n bits 0?"
+  [hash n]
+  (let [hash (int hash)]
+    (-> hash
+        (bit-shift-right n)
+        (bit-shift-left n)
+        (bit-and hash)
+        (= hash))))
 
 (defn window-pow
   "pow = p^window-sz % q"
@@ -34,7 +44,13 @@
 
 (defn byte-array->hash-seq
   "Given a rabin context and some bytes, emit a seq of [[index rabin-hash] ...]
-  each index beginning from the end of the first window"
+  each index beginning from the end of the first window
+
+  opts:
+
+  :window-size Sliding window size
+  :prime       Rabin Polynomial constant
+  :q           Modulus"
   ([^bytes bs]
    (byte-array->hash-seq default-ctx bs))
   ([ctx ^bytes bs]
@@ -61,6 +77,14 @@
           (partition-all 2)))))
 
 (comment
+  (use 'criterium.core)
+  (with-progress-reporting
+    (quick-bench
+      (let [file (->> (file-seq (io/file "data/maildir"))
+                      (filter File/isFile)
+                      (rand-nth))]
+        (chunk-input-stream (io/input-stream file)))))
+
   ; find repeating sequences of an arbitrary window size
   (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
         {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)
@@ -76,7 +100,12 @@
 
 (defn input-stream->hash-seq
   "Given an arbitrarily large sequence, emit a sequence of rabin hashes at
-  each index beginning from the end of the first window"
+  each index beginning from the end of the first window
+
+  Accepts Rabin opts and:
+  :buf-size BufferedInputStream byte[] array size"
+  ([^InputStream input-stream]
+   (input-stream->hash-seq input-stream {}))
   ([^InputStream input-stream opts]
    (input-stream->hash-seq
      (if (instance? BufferedInputStream input-stream)
