@@ -100,7 +100,7 @@ Input #0, wav, from 'raga/asavari02.wav':
 
 Overall: awesome ratios on images
 
-[Natural images](https://www.kaggle.com/datasets/prasunroy/natural-images)
+[Natural images (jpeg)](https://www.kaggle.com/datasets/prasunroy/natural-images)
 
 ```clojure
 {:all {:total-bytes 359403192, :total-blocks 36628, :avg-block-size-bytes 9812},
@@ -109,7 +109,7 @@ Overall: awesome ratios on images
  :diff {:reduced-bytes 179732579, :reduced-percent 50.00862068025261}}
 ```
 
-[Ripe and unripe tomatoes (images)](https://www.kaggle.com/datasets/sumn2u/riped-and-unriped-tomato-dataset)
+[Ripe and unripe tomatoes (jpeg)](https://www.kaggle.com/datasets/sumn2u/riped-and-unriped-tomato-dataset)
 
 ```clojure
 {:all {:total-bytes 122864035, :total-blocks 151613, :avg-block-size-bytes 810},
