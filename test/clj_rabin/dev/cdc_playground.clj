@@ -68,15 +68,11 @@
                  (rd/mean :size)}
                 ds))
 
-
 (comment
-  (require '[clojure.java.io :as io])
-  (import '(java.io File))
-
   (def chunks
     (atom nil))
 
-  (load-dataset! "data/tomatoes" chunks)
+  (load-dataset! "data/raga" chunks)
 
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)
@@ -88,9 +84,14 @@
         ; maps containing aggregate vals
         all (first (map rows->long (ds/rows stats-all)))
         cdc (first (map rows->long (ds/rows stats-cdc)))
-        blocks (first (map rows->long (ds/rows stats-per-file)))]
+        blocks (first (map rows->long (ds/rows stats-per-file)))
+        reduced-bytes (- (:total-bytes all)
+                         (:total-bytes cdc))]
     {:all all
      :cdc cdc
-     :blocks blocks}))
-
-
+     :blocks blocks
+     :diff {:reduced-bytes reduced-bytes
+            :reduced-percent (->> (:total-bytes all)
+                                  (/ reduced-bytes)
+                                  (* 100)
+                                  double)}}))
