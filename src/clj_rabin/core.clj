@@ -30,7 +30,7 @@
   (defn bench-wallpaper
     []
     (let [file (io/file "/home/mach/Pictures/Wallpapers/04086_queenstownfrombobspeak_3840x2400.jpg")]
-      (doall (chunk-input-stream (io/input-stream file) :buf-size 2000000))))
+      (chunk-input-stream (io/input-stream file) :buf-size 2000000)))
 
   (with-progress-reporting
     (quick-bench

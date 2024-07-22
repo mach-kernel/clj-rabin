@@ -17,8 +17,7 @@
   (reduce unchecked-multiply 1 (repeat b a)))
 
 (def range-vec
-  (memoize (fn
-             ^PersistentVector
+  (memoize (fn ^PersistentVector
              [s & [e]]
              (into [] (if e
                         (range s e)
@@ -28,7 +27,7 @@
   "Are the bottom n bits 0?"
   [^long hash ^Integer n]
   (-> hash
-      (bit-shift-right ^long n)
+      (unsigned-bit-shift-right ^long n)
       (bit-shift-left ^long n)
       (bit-and ^long hash)
       (= hash)))
@@ -56,6 +55,7 @@
 (defn slide-roll-hash
   "Increment the hash given the byte entering the window (in-byte)
   and the byte leaving the window (out-byte)"
+  ^long
   [{:keys [^long prime ^long pow ^long q]} ^long prev-hash out-byte in-byte]
   (-> (* prev-hash prime)
       (+ ^byte in-byte)
@@ -82,11 +82,11 @@
                            ctx
                            prev-hash
                            ; out-byte
-                           (nth bs (- i window-size))
+                           ^byte (nth bs (- i window-size))
                            ; in-byte
-                           (nth bs i))]
+                           ^byte (nth bs i))]
            (f i roll-hash)
-           (recur (inc i) roll-hash)))))))
+           (recur (inc i) ^long roll-hash)))))))
 
 (defn byte-array->hash-seq
   "Given a rabin context and some bytes, emit a seq of [[index rabin-hash] ...]
@@ -116,40 +116,6 @@
        [(dec window-size) (poly-hash ctx bs)]
        (range-vec window-size buf-size)))))
 
-(comment
-  (use 'criterium.core)
-
-  (with-progress-reporting
-    (quick-bench
-      (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-            {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
-        (do-rabin (fn [a b] (println a b)) rabin-ctx some-data))))
-
-  (let [file (io/file "/home/mach/Pictures/Wallpapers/04086_queenstownfrombobspeak_3840x2400.jpg")
-        whole-file (io/input-stream file)
-        wf-bs (.readAllBytes whole-file)]
-    #_(doall (byte-array->hash-seq default-ctx wf-bs))
-    (do-rabin #(do [%1 %2]) default-ctx wf-bs)
-    nil)
-
-  (dotimes [_ 10000]
-    (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-          {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
-      (doall (byte-array->hash-seq rabin-ctx some-data))))
-
-  ; find repeating sequences of an arbitrary window size
-  (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)
-        hash-seq (byte-array->hash-seq rabin-ctx some-data)
-        groups (->> (group-by last hash-seq)
-                    (into {} (map (fn [[k v]]
-                                    [k (map (comp inc first) v)]))))]
-    (map (fn [[h is]]
-           [h
-            (Integer/toBinaryString h)
-            (map #(String. (byte-array (subvec (vec some-data) (- % window-size) %))) is)])
-         groups)))
-
 (defn do-rabin-input-stream
   "Given an arbitrarily large sequence, emit a sequence of rabin hashes at
   each index beginning from the end of the first window
@@ -167,12 +133,12 @@
      (while (pos? (.available bis))
        (let [buf (byte-array buf-size)
              bytes-read (.read bis buf 0 buf-size)]
-         (swap! pos + bytes-read)
-         (do-rabin (comp f offset-i) (assoc opts :buf-size bytes-read) buf))))))
+         (do-rabin (comp f offset-i) (assoc opts :buf-size bytes-read) buf)
+         (swap! pos + bytes-read))))))
 
 (defn input-stream->hash-seq
   "Given an arbitrarily large sequence, emit a sequence of rabin hashes at
-  each index beginning from the end of the first window
+  each index beginning from the end of the first window.
 
   Accepts Rabin opts and:
   :buf-size BufferedInputStream byte[] array size"
@@ -195,3 +161,37 @@
                       (map (fn [[i h]]
                              [(+ pos i) h])))
                  (input-stream->hash-seq bis (+ pos bytes-read) opts)))))))
+
+(comment
+  (use 'criterium.core)
+
+  (with-progress-reporting
+    (quick-bench
+      (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+            {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
+        (do-rabin (fn [a b]) rabin-ctx some-data))))
+
+  (let [file (io/file "/home/mach/Pictures/Wallpapers/04086_queenstownfrombobspeak_3840x2400.jpg")
+        whole-file (io/input-stream file)
+        wf-bs (.readAllBytes whole-file)]
+    #_(doall (byte-array->hash-seq default-ctx wf-bs))
+    (do-rabin #(do [%1 %2]) default-ctx wf-bs)
+    nil)
+
+  (dotimes [_ 1000000]
+    (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+          {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
+      (doall (do-rabin (fn [a b]) default-ctx some-data))))
+
+  ; find repeating sequences of an arbitrary window size
+  (let [some-data (.getBytes "AAAAACCCCCAAAAACCCCCCAAAAAGGGTTT")
+        {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 10)
+        hash-seq (byte-array->hash-seq rabin-ctx some-data)
+        groups (->> (group-by last hash-seq)
+                    (into {} (map (fn [[k v]]
+                                    [k (map (comp inc first) v)]))))]
+    (map (fn [[h is]]
+           [h
+            (Long/toBinaryString h)
+            (map #(String. (byte-array (subvec (vec some-data) (- % window-size) %))) is)])
+         groups)))

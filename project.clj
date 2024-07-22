@@ -8,5 +8,6 @@
     :profiles {:dev {:dependencies [[techascent/tech.ml.dataset "7.030"]
                                     [org.clojure/core.async "1.6.681"]
                                     [criterium "0.4.6"]
-                                    [commons-codec/commons-codec "1.17.1"]]}}
+                                    [commons-codec/commons-codec "1.17.1"]]}
+               :test {:global-vars {*unchecked-math* :warn-on-boxed}}}
     :repl-options {:init-ns clj-rabin.core})
