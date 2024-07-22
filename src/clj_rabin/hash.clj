@@ -11,10 +11,11 @@
    :q           (long 153191)                               ;Integer/MAX_VALUE
    :window-size (int 16)})
 
-(defn long-pow
+(defn mod-pow
   ^long
-  [^long a ^long b]
-  (reduce unchecked-multiply 1 (repeat b a)))
+  [^long a ^long b ^long q]
+  (reduce (fn [a b]
+            (mod (* a b) q)) 1 (repeat b a)))
 
 (def range-vec
   (memoize (fn ^PersistentVector
@@ -36,8 +37,7 @@
   "pow = p^window-sz % q"
   ^long
   [{:keys [window-size ^long prime ^long q]}]
-  (-> (long-pow prime window-size)
-      (mod q)))
+  (mod-pow prime window-size q))
 
 (defn poly-hash
   "Compute the polynomial hash for a window
@@ -45,7 +45,7 @@
   ^long
   [{:keys [^long window-size ^long prime ^long q]} ^bytes bs]
   (let [hash (reduce (fn [^long acc ^long i]
-                       (-> (long-pow prime (- (dec window-size) i))
+                       (-> (mod-pow prime (- (dec window-size) i) q)
                            (* ^byte (nth bs i))
                            (+ acc)))
                      (long 0)

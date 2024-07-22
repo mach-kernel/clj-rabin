@@ -9,7 +9,7 @@
 
 (defn file->chunks
   [^File file & [bytes-read]]
-  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 14)
+  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 14 :buf-size 5000000)
                  (map (fn [[i h]] [(inc i) h]))
                  (cons [0 nil]))
         cdc (concat cdc [[(.length file) nil]])
@@ -18,11 +18,11 @@
           :when (not (nil? end))
           :let [buf (byte-array end)
                 read-len (- end start)
-                _ (swap! bytes-read + read-len)]]
-                ;_ (.read raf buf start read-len)]]
+                _ (swap! bytes-read + read-len)
+                _ (.read raf buf start read-len)]]
       {:file   file
        :rabin  rabin
-       ;:sha256 (DigestUtils/sha256Hex buf)
+       :sha256 (DigestUtils/sha256Hex buf)
        :start  start
        :end    (dec end)
        :size   read-len})))
@@ -86,11 +86,11 @@
         blocks (first (map rows->long (ds/rows stats-per-file)))
         reduced-bytes (- (:total-bytes all)
                          (:total-bytes cdc))]
-    {:all all
-     :cdc cdc
+    {:all    all
+     :cdc    cdc
      :blocks blocks
-     :diff {:reduced-bytes reduced-bytes
-            :reduced-percent (->> (:total-bytes all)
-                                  (/ reduced-bytes)
-                                  (* 100)
-                                  double)}}))
+     :diff   {:reduced-bytes   reduced-bytes
+              :reduced-percent (->> (:total-bytes all)
+                                    (/ reduced-bytes)
+                                    (* 100)
+                                    double)}}))
