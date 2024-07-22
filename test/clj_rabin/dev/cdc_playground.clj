@@ -18,11 +18,11 @@
           :when (not (nil? end))
           :let [buf (byte-array end)
                 read-len (- end start)
-                _ (swap! bytes-read + read-len)
-                _ (.read raf buf start read-len)]]
+                _ (swap! bytes-read + read-len)]]
+                ;_ (.read raf buf start read-len)]]
       {:file   file
        :rabin  rabin
-       :sha256 (DigestUtils/sha256Hex buf)
+       ;:sha256 (DigestUtils/sha256Hex buf)
        :start  start
        :end    (dec end)
        :size   read-len})))
@@ -72,10 +72,7 @@
   (def chunks
     (atom nil))
 
-  (set! *unchecked-math* true)
-  (with-redefs [*unchecked-math* true]
-    (load-dataset! "data/natural_images" chunks))
-
+  (load-dataset! "data/natural_images" chunks)
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)
         stats-cdc (-> @chunks (ds/unique-by-column :sha256) chunk-ds->agg-stats)
