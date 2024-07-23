@@ -1,5 +1,5 @@
 (ns clj-rabin.core
-  (:require [clj-rabin.hash :refer [lsb-zero? do-rabin-input-stream]]
+  (:require [clj-rabin.hash :refer [do-rabin-input-stream lsb-zero?]]
             [clojure.java.io :as io])
   (:import (java.io InputStream)))
 
@@ -17,8 +17,9 @@
   [^InputStream is & {:keys [bottom-n] :or {bottom-n 12} :as opts}]
   (let [chunks (atom [])]
     (do-rabin-input-stream
-      #(when (lsb-zero? (last %) bottom-n)
-         (swap! chunks conj %))
+      #(when-let [emit? (lsb-zero? (last %) bottom-n)]
+         (swap! chunks conj %)
+         emit?)
       is
       opts)
     @chunks))
@@ -28,14 +29,32 @@
 
   ; ~6mb
   (defn bench-wallpaper
-    []
-    (let [file (io/file "/home/mach/Pictures/Wallpapers/04086_queenstownfrombobspeak_3840x2400.jpg")]
-      (chunk-input-stream (io/input-stream file) :buf-size 2000000)))
+    [])
+  (let [file (io/file "/home/mach/Downloads/Fedora-KDE-Live-x86_64-40/fedora.iso")
+        then (System/currentTimeMillis)
+        _ (chunk-input-stream (io/input-stream file) :buf-size 2000000)
+        now (System/currentTimeMillis)]
+    (- now then))
+
+  (let [file (io/file "/home/mach/Downloads/Fedora-KDE-Live-x86_64-40/fedora.iso")
+        then (System/currentTimeMillis)
+        _ (doall (fastcdc-chunk (.toPath file)))
+        now (System/currentTimeMillis)]
+    (- now then))
+
 
   (with-progress-reporting
     (quick-bench
       (bench-wallpaper))))
 
+(defn fastcdc-chunk
+  [^Path p]
+  (let [nfr-chunker (-> (ChunkerBuilder.)
+                        (.nlFiedlerRust)
+                        (.build))]
+    (iterator-seq (-> nfr-chunker
+                      (.chunk p)
+                      (.iterator)))))
 
 (comment
   (require '[clojure.java.io :as io])
