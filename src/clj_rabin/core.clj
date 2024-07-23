@@ -45,16 +45,15 @@
 
   (with-progress-reporting
     (quick-bench
-      (bench-wallpaper))))
-
-(defn fastcdc-chunk
-  [^Path p]
-  (let [nfr-chunker (-> (ChunkerBuilder.)
-                        (.nlFiedlerRust)
-                        (.build))]
-    (iterator-seq (-> nfr-chunker
-                      (.chunk p)
-                      (.iterator)))))
+      (bench-wallpaper)))
+  (defn fastcdc-chunk
+    [^Path p]
+    (let [nfr-chunker (-> (ChunkerBuilder.)
+                          (.nlFiedlerRust)
+                          (.build))]
+      (iterator-seq (-> nfr-chunker
+                        (.chunk p)
+                        (.iterator))))))
 
 (comment
   (require '[clojure.java.io :as io])
