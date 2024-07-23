@@ -189,10 +189,10 @@
 (comment
   (use 'criterium.core)
 
-  (with-progress-reporting
-    (quick-bench
-      (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-            {:keys [window-size] :as rabin-ctx} (->hash-context {:window-size 3})]
+  (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
+        {:keys [window-size] :as rabin-ctx} (->hash-context {:window-size 3})]
+    (with-progress-reporting
+      (quick-bench
         (do-rabin (fn [a b]) rabin-ctx some-data))))
 
   (dotimes [_ 1000000]
