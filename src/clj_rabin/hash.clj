@@ -9,7 +9,7 @@
    window-size (bytes): can be anything (but as little as 16 bytes is 'enough')"
   {:prime       (long 257)
    :q           (long 153191)                               ;Integer/MAX_VALUE
-   :window-size (int 16)})
+   :window-size (int 32)})
 
 (defn mod-pow
   ^long
@@ -32,12 +32,6 @@
       (bit-shift-left ^long n)
       (bit-and ^long hash)
       (= hash)))
-
-(defn window-pow
-  "pow = p^window-sz % q"
-  ^long
-  [{:keys [window-size ^long prime ^long q]}]
-  (mod-pow prime window-size q))
 
 (defn poly-hash
   "Compute the polynomial hash for a window
@@ -63,11 +57,21 @@
       (mod q)))
 
 (defn do-rabin
+  "Given a function (for side effects), a rabin context, and some bytes, emit a seq of
+  [[index rabin-hash] ...] each index beginning from the end of the first window
+
+  pow (computed for you) = p^window-sz % q
+
+  opts:
+
+  :window-size Sliding window size
+  :prime       Rabin Polynomial constant
+  :q           Modulus"
   ([f ^bytes bs]
    (do-rabin f default-ctx bs))
   ([f ctx ^bytes bs]
-   (let [{:keys [^long window-size ^Integer buf-size] :as ctx} (merge default-ctx ctx)
-         ctx (assoc ctx :pow (window-pow ctx))
+   (let [{:keys [^long window-size ^long prime ^long q ^Integer buf-size] :as ctx} (merge default-ctx ctx)
+         ctx (assoc ctx :pow (mod-pow prime window-size q))
          ^long buf-size (or buf-size (alength bs))
          ^long window-size (if (>= window-size (long (alength bs)))
                              (dec buf-size)
@@ -92,6 +96,8 @@
   "Given a rabin context and some bytes, emit a seq of [[index rabin-hash] ...]
   each index beginning from the end of the first window
 
+  pow (computed for you) = p^window-sz % q
+
   opts:
 
   :window-size Sliding window size
@@ -100,8 +106,8 @@
   ([^bytes bs]
    (byte-array->hash-seq default-ctx bs))
   ([ctx ^bytes bs]
-   (let [{:keys [^long window-size ^Integer buf-size] :as ctx} (merge default-ctx ctx)
-         ctx (assoc ctx :pow (window-pow ctx))
+   (let [{:keys [^long window-size ^long prime ^long q ^Integer buf-size] :as ctx} (merge default-ctx ctx)
+         ctx (assoc ctx :pow (mod-pow prime window-size q))
          ^long buf-size (or buf-size (alength bs))
          ^long window-size (if (>= window-size (long (alength bs)))
                              (dec buf-size)
@@ -170,13 +176,6 @@
       (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
             {:keys [window-size] :as rabin-ctx} (assoc default-ctx :window-size 4)]
         (do-rabin (fn [a b]) rabin-ctx some-data))))
-
-  (let [file (io/file "/home/mach/Pictures/Wallpapers/04086_queenstownfrombobspeak_3840x2400.jpg")
-        whole-file (io/input-stream file)
-        wf-bs (.readAllBytes whole-file)]
-    #_(doall (byte-array->hash-seq default-ctx wf-bs))
-    (do-rabin #(do [%1 %2]) default-ctx wf-bs)
-    nil)
 
   (dotimes [_ 1000000]
     (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
