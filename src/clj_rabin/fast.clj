@@ -59,15 +59,20 @@
 
 (defn drain
   [n src dest]
-  (let [bytes (.readNBytes src n)]
+  (let [bytes (if (= 1 n) (.read src) (.readNBytes src n))]
     (.write dest bytes)
     bytes))
 
 (defn- chunker
-  [^BufferedInputStream this {:size/keys [expected min max]
-                              :keys [pos normalization]}]
-  (let [whats-left (.avaliable this)
-        bits (quot (math/log10 expected) (math/log10 2))
+  [^BufferedInputStream this {:size/keys [min average max]
+                              :keys [pos normalization]
+                              :or {pos 0
+                                   normalization 0
+                                   min 64
+                                   average 256
+                                   max 1024}}]
+  (let [whats-left (.available this)
+        bits (int (quot (math/log10 average) (math/log10 2)))
         masks {:small (masks (+ bits normalization))
                :large (masks (- bits normalization))}]
     (if (<= whats-left min)
@@ -77,7 +82,7 @@
        :length whats-left}
       (with-open [baos (ByteArrayOutputStream.)]
         (let [upper-bound (if (> whats-left max) max whats-left)
-              normal (if (< whats-left expected) whats-left expected)
+              normal (if (< whats-left average) whats-left average)
               normal-cutoff (quot normal 2)]
           (drain min this baos)
           (reduce (fn [fingerprint i]
@@ -86,7 +91,8 @@
                                  (masks :large))
                           offset (* 2 i)
                           byte (drain 1 this baos)
-                          fingerprint (+ (shift-twice fingerprint) (get-in lookups [:shift byte]))]
+                          _ (prn :shift-stage offset byte fingerprint)
+                          fingerprint (unchecked-add (shift-twice fingerprint) (get-in lookups [:shift byte]))]
                       (if (zero? (bit-and fingerprint mask))
                         (reduced
                          {:data (.toByteArray baos)
@@ -95,42 +101,47 @@
                           :length offset})
                         (let [offset (inc offset)
                               byte (drain 1 this baos)
-                              fingerprint (+ fingerprint (get-in lookups [:gear byte]))]
-                          (if (map? chunk)
+                              fingerprint (unchecked-add fingerprint (get-in lookups [:gear byte]))]
+                          (if (zero? (bit-and fingerprint mask))
                             (reduced
                              {:data (.toByteArray baos)
                               :fingerprint fingerprint
                               :offset pos
                               :length offset})
-                            chunk)))))
+                            fingerprint)))))
                   0
-                  (range (quot min 2) (quot upper-bound 2)))))))
+                  (range (quot min 2) (quot upper-bound 2))))))))
 
   (extend BufferedInputStream
-    RabinHashable
-    {:-hash-seq
-     (fn [^BufferedInputStream this {:keys [chunk-fn] :or {chunk-fn chunker} :as ctx}]
-       (lazy-seq
-        (when (pos? (.available this))
-          (when-let [{:keys [length] :as chunk} (chunk-fn this ctx)]
-            (cons chunk (-hash-seq this (update ctx :pos + length)))))))}))
+  RabinHashable
+  {:-hash-seq
+   (fn [^BufferedInputStream this {:keys [chunk-fn] :or {chunk-fn chunker} :as ctx}]
+     (prn :bis)
+     (lazy-seq
+      (when (pos? (.available this))
+        (when-let [{:keys [length] :as chunk} (chunk-fn this ctx)]
+          (prn chunk)
+          (cons chunk (-hash-seq this (update ctx :pos (fnil + 0) length)))))))})
 
 (extend InputStream
   RabinHashable
   {:-hash-seq
    (fn [^InputStream this ctx]
+     (prn :stream)
      (-hash-seq (BufferedInputStream. this) ctx))})
 
 (extend (class (make-array Byte/TYPE 0))
   RabinHashable
   {:-hash-seq
    (fn [^bytes this ctx]
+     (prn :bytes)
      (-hash-seq (ByteArrayInputStream. this) ctx))})
 
 (extend File
   RabinHashable
   {:-hash-seq
    (fn [^File this ctx]
+     (prn :file)
      (when (and (.exists this) (.isFile this))
        (-hash-seq (io/input-stream this) ctx)))})
 
@@ -138,4 +149,5 @@
   RabinHashable
   {:-hash-seq
    (fn [^String this ctx]
+     (prn :string)
      (-hash-seq (.getBytes this) ctx))})
