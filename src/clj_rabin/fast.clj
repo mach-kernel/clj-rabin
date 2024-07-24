@@ -76,14 +76,15 @@
         masks {:small (masks (+ bits normalization))
                :large (masks (- bits normalization))}]
     (if (<= whats-left min)
-      {:data (.readNBytes this whats-left)
+      {:data (String. (.readNBytes this whats-left))
        :fingerprint 0
        :offset pos
        :length whats-left}
       (with-open [baos (ByteArrayOutputStream.)]
         (let [upper-bound (if (> whats-left max) max whats-left)
               normal (if (< whats-left average) whats-left average)
-              normal-cutoff (quot normal 2)]
+              normal-cutoff (quot normal 2)
+              upper-cutoff (int (quot upper-bound 2))]
           (drain min this baos)
           (reduce (fn [fingerprint i]
                     (let [mask (if (< i normal-cutoff)
@@ -91,23 +92,24 @@
                                  (masks :large))
                           offset (* 2 i)
                           byte (drain 1 this baos)
-                          _ (prn :shift-stage offset byte fingerprint)
+                          ;; _ (prn :shift-stage offset byte fingerprint)
                           fingerprint (unchecked-add (shift-twice fingerprint) (get-in lookups [:shift byte]))]
-                      (if (zero? (bit-and fingerprint mask))
+                      (if (or (zero? (bit-and fingerprint mask))
+                              ;; if we've hit the end, return regardless
+                              (= (dec upper-cutoff) i))
                         (reduced
-                         {:data (.toByteArray baos)
+                         {:data (String. (.toByteArray baos))
                           :fingerprint fingerprint
                           :offset pos
-                          :length offset})
-                        (let [offset (inc offset)
-                              byte (drain 1 this baos)
+                          :length (inc offset)})
+                        (let [byte (drain 1 this baos)
                               fingerprint (unchecked-add fingerprint (get-in lookups [:gear byte]))]
                           (if (zero? (bit-and fingerprint mask))
                             (reduced
-                             {:data (.toByteArray baos)
+                             {:data (String. (.toByteArray baos))
                               :fingerprint fingerprint
                               :offset pos
-                              :length offset})
+                              :length (+ 2 offset)})
                             fingerprint)))))
                   0
                   (range (quot min 2) (quot upper-bound 2))))))))
@@ -116,32 +118,28 @@
   RabinHashable
   {:-hash-seq
    (fn [^BufferedInputStream this {:keys [chunk-fn] :or {chunk-fn chunker} :as ctx}]
-     (prn :bis)
      (lazy-seq
       (when (pos? (.available this))
         (when-let [{:keys [length] :as chunk} (chunk-fn this ctx)]
-          (prn chunk)
+          ;; (prn chunk ctx)
           (cons chunk (-hash-seq this (update ctx :pos (fnil + 0) length)))))))})
 
 (extend InputStream
   RabinHashable
   {:-hash-seq
    (fn [^InputStream this ctx]
-     (prn :stream)
      (-hash-seq (BufferedInputStream. this) ctx))})
 
 (extend (class (make-array Byte/TYPE 0))
   RabinHashable
   {:-hash-seq
    (fn [^bytes this ctx]
-     (prn :bytes)
      (-hash-seq (ByteArrayInputStream. this) ctx))})
 
 (extend File
   RabinHashable
   {:-hash-seq
    (fn [^File this ctx]
-     (prn :file)
      (when (and (.exists this) (.isFile this))
        (-hash-seq (io/input-stream this) ctx)))})
 
@@ -149,5 +147,4 @@
   RabinHashable
   {:-hash-seq
    (fn [^String this ctx]
-     (prn :string)
      (-hash-seq (.getBytes this) ctx))})
