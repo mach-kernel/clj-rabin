@@ -22,16 +22,15 @@
                        #{"AAAAAAAAAA"}]]
           window-size 10]
       (doseq [[dna assert-chunks] test-cases
-              :let [hashes (hash/byte-array->hash-seq {:window-size window-size}
-                                                      (.getBytes dna))
+              :let [ctx (hash/->hash-context {:window-size window-size})
+                    hashes (hash/byte-array->hash-seq ctx (.getBytes dna))
                     chunks (hashes->groups dna window-size hashes)]]
         (is (= chunks assert-chunks)))))
   (testing "window size 1"
     (let [string "AAAAACCCCCAAAAACCCCCCAAAAAGGGTTT"
-          window-size 1
-          hashes (hash/byte-array->hash-seq {:window-size window-size
-                                             :prime Integer/MAX_VALUE}
-                                            (.getBytes string))
+          {:keys [window-size] :as ctx} (hash/->hash-context {:window-size 1
+                                                              :prime Integer/MAX_VALUE})
+          hashes (hash/byte-array->hash-seq ctx (.getBytes string))
           chunks (hashes->groups string window-size hashes)]
       (is (= #{"A" "T" "C" "G"} chunks))))
   (testing "overflow"

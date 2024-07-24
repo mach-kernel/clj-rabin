@@ -35,11 +35,12 @@
       (= hash)))
 
 (defn ->pow-byte-table
+  "Returns a vector of (pow * out-byte % q) for 00..FF"
   [^long pow ^long q]
-  (let [all-bytes (range Byte/MIN_VALUE (inc Byte/MAX_VALUE))]
-    (zipmap all-bytes
-            (map (fn [b]
-                   ^long (mod (* ^long pow ^long b) ^long q)) all-bytes))))
+  (mapv
+    (fn [b]
+      ^long (mod (* ^long pow ^long b) ^long q))
+    (range 0 256)))
 
 (defn ->hash-context
   "Given a bag of Rabin parameter overrides, prepare a hashing context"
@@ -70,8 +71,9 @@
   [{:keys [^long prime ^long q pow-table]} ^long prev-hash out-byte in-byte]
   (-> (* prev-hash prime)
       (+ ^byte in-byte)
-      ; java signed byte
-      (- ^long (pow-table out-byte))
+      ; (- (* ^byte out-byte ^long pow))
+      ; java signed byte lookup against 0-255
+      (- ^long (nth pow-table (bit-and ^byte out-byte 0xFF)))
       (mod q)))
 
 (defn do-rabin
@@ -190,7 +192,7 @@
   (use 'criterium.core)
 
   (let [some-data (.getBytes "abcdefghabcdefzabcdz54325aadgfsfgabcd")
-        {:keys [window-size] :as rabin-ctx} (->hash-context {:window-size 3})]
+        {:keys [window-size] :as rabin-ctx} (->hash-context {:window-size 4})]
     (with-progress-reporting
       (quick-bench
         (do-rabin (fn [a b]) rabin-ctx some-data))))

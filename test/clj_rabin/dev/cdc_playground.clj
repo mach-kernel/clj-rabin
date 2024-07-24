@@ -9,7 +9,7 @@
 
 (defn file->chunks
   [^File file & [bytes-read]]
-  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 14 :buf-size 5000000)
+  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 16 :buf-size 5000000)
                  (map (fn [[i h]] [(inc i) h]))
                  (cons [0 nil]))
         cdc (concat cdc [[(.length file) nil]])
@@ -29,6 +29,7 @@
 
 (defn load-dataset!
   [path ds-atom]
+  (reset! ds-atom nil)
   (let [bytes-read (atom 0)
         file-queue (async/chan)
         chunk-queue (async/chan)
@@ -68,11 +69,12 @@
                  (rd/mean :size)}
                 ds))
 
-(comment
-  (def chunks
-    (atom nil))
+(def chunks
+  (atom nil))
 
-  (load-dataset! "data/natural_images" chunks)
+(comment
+
+  (load-dataset! "data/tiktok/videos" chunks)
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)
         stats-cdc (-> @chunks (ds/unique-by-column :sha256) chunk-ds->agg-stats)
