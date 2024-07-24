@@ -55,7 +55,7 @@
      :shift (mapv shift-once gear)}))
 
 (defprotocol RabinHashable
-  (-hash-seq "returns a lazy-seq of chunks for this" [this ctx]))
+  (-hash-seq [this ctx] "returns a lazy-seq of chunks for this"))
 
 (defn drain
   [n src dest]
@@ -121,7 +121,7 @@
    (fn [^InputStream this ctx]
      (-hash-seq (BufferedInputStream. this) ctx))})
 
-(extend bytes
+(extend (class (make-array Byte/TYPE 0))
   RabinHashable
   {:-hash-seq
    (fn [^bytes this ctx]
