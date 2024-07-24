@@ -1,4 +1,4 @@
-3M(ns clj-rabin.fast
+(ns clj-rabin.fast
   (:require [clojure.java.io :as io]
             [clojure.math :as math])
   (:import [java.io BufferedInputStream ByteArrayInputStream ByteArrayOutputStream File InputStream]
@@ -60,68 +60,134 @@
 (defn drain
   [n src dest]
   (let [bytes (if (= 1 n) (.read src) (.readNBytes src n))]
-    (.write dest bytes)
-    bytes))
+    (when-not (= -1 bytes)
+      (.write dest bytes)
+      bytes)))
+
+(defn maskset
+  [center level]
+  (let [bits (int (quot (math/log10 center) (math/log10 2)))
+        ;;_ (prn :avg center :bits bits :n level)
+        small-mask (masks (+ bits ^long level))
+        large-mask (masks (- bits ^long level))]
+    {:small
+     {:gear small-mask
+      :shift (shift-once small-mask)}
+
+     :large
+     {:gear large-mask
+      :shift (shift-once large-mask)}}))
 
 (defn- chunker
-  [^BufferedInputStream this {:size/keys [min average max]
-                              :keys [pos normalization]
+  [^BufferedInputStream this {:size/keys [^long min ^long average ^long max]
+                              :keys [pos ^long normalization]
                               :or {pos 0
                                    normalization 0
                                    min 64
                                    average 256
                                    max 1024}}]
   (let [whats-left (.available this)
-        bits (int (quot (math/log10 average) (math/log10 2)))
-        masks {:small (masks (+ bits normalization))
-               :large (masks (- bits normalization))}]
+        masks (maskset average normalization)]
     (if (<= whats-left min)
-      {:data (String. (.readNBytes this whats-left))
+      {:data (.readNBytes this whats-left)
        :fingerprint 0
        :offset pos
        :length whats-left}
       (with-open [baos (ByteArrayOutputStream.)]
-        (let [upper-bound (if (> whats-left max) max whats-left)
-              normal (if (< whats-left average) whats-left average)
-              normal-cutoff (quot normal 2)
-              upper-cutoff (int (quot upper-bound 2))]
+        (let [^long upper-bound (if (> whats-left max) max whats-left)
+              ^long normal (if (< whats-left average) whats-left average)
+              data-fn (fn [fingerprint length]
+                        {:data (.toByteArray baos)
+                         :length length
+                         :fingerprint fingerprint
+                         :offset pos})]
+          #_(prn :remainder whats-left
+                 :min min :avg average :max max
+                 :upper-bound upper-bound
+                 :normal normal
+                 :start (/ min 2)
+                 :end (/ upper-bound 2))
           (drain min this baos)
-          (reduce (fn [fingerprint i]
-                    (let [mask (if (< i normal-cutoff)
-                                 (masks :small)
-                                 (masks :large))
-                          offset (* 2 i)
-                          byte (drain 1 this baos)
-                          ;; _ (prn :shift-stage offset byte fingerprint)
-                          fingerprint (unchecked-add (shift-twice fingerprint) (get-in lookups [:shift byte]))]
-                      (if (or (zero? (bit-and fingerprint mask))
-                              ;; if we've hit the end, return regardless
-                              (= (dec upper-cutoff) i))
-                        (reduced
-                         {:data (String. (.toByteArray baos))
-                          :fingerprint fingerprint
-                          :offset pos
-                          :length (inc offset)})
-                        (let [byte (drain 1 this baos)
-                              fingerprint (unchecked-add fingerprint (get-in lookups [:gear byte]))]
-                          (if (zero? (bit-and fingerprint mask))
-                            (reduced
-                             {:data (String. (.toByteArray baos))
-                              :fingerprint fingerprint
-                              :offset pos
-                              :length (+ 2 offset)})
-                            fingerprint)))))
-                  0
-                  (range (quot min 2) (quot upper-bound 2))))))))
+          (loop [fingerprint 0
+                 length min
+                 [type & rest] (cycle [:shift :gear])]
+            (if (= length upper-bound)
+              (data-fn fingerprint length)
+              (let [mask (if (< length ^long normal)
+                           (masks :small)
+                           (masks :large))
+                    byte (drain 1 this baos)
+                    length (inc length)
+                    fingerprint (cond-> fingerprint
+                                  (#{:shift} type) (shift-twice)
+                                  true (unchecked-add ^long (get-in lookups [type byte])))]
+                (if (zero? (bit-and fingerprint ^long (mask type)))
+                  (data-fn fingerprint length)
+                  (recur fingerprint length rest)))))
 
-  (extend BufferedInputStream
+          #_(reduce
+             (fn [{:keys [fingerprint length] :as acc} i]
+               (prn :i i :l length :b upper-bound :r (.available this))
+               (if (= length upper-bound)
+                 (reduced (assoc acc :data (.toByteArray baos) :length length))
+                 (let [mask (if (< length ^long normal)
+                              (masks :small)
+                              (masks :large))
+                       byte (drain 1 this baos)
+                       length (inc length)
+                       fingerprint (unchecked-add (shift-twice fingerprint) ^long (get-in lookups [:shift byte]))
+                     ;;_ (prn :shift-stage length byte fingerprint (mask :shift) (zero? (bit-and fingerprint ^long (mask :shift))))
+                       ]
+                   (if (or (zero? (bit-and fingerprint ^long (mask :shift)))
+                           (zero? (.available this)))
+                     (reduced (assoc acc :data (.toByteArray baos) :fingerprint fingerprint :length length))
+                     (let [byte (drain 1 this baos)
+                           length (inc length)
+                           ;; _ (prn fingerprint byte)
+                           fingerprint (unchecked-add fingerprint ^long (get-in lookups [:gear byte]))]
+                       (if (zero? (bit-and fingerprint (mask :normal)))
+                         (reduced (assoc acc :data (.toByteArray baos) :fingerprint fingerprint :length length))
+                         (assoc acc :fingerprint fingerprint :length length)))))))
+             {:fingerprint 0 :offset pos :length min}
+             (range))
+
+          #_(reduce (fn [fingerprint ^long i]
+                      (let [^long mask (if (< i ^long normal-cutoff)
+                                         (masks :small)
+                                         (masks :large))
+                            offset (* 2 i)
+                            byte (drain 1 this baos)
+                            ;; _ (prn :shift-stage offset byte fingerprint)
+                            fingerprint (unchecked-add (shift-twice fingerprint) ^long (get-in lookups [:shift byte]))]
+                        (if (or (zero? (bit-and fingerprint mask))
+                                ;; if we've hit the end, return regardless
+                                (>= (dec upper-cutoff) offset))
+                          (reduced
+                           {:data (.toByteArray baos)
+                            :fingerprint fingerprint
+                            :offset pos
+                            :length (inc offset)})
+                          (let [byte (drain 1 this baos)
+                                ;;_ (prn fingerprint byte)
+                                fingerprint (unchecked-add fingerprint ^long (get-in lookups [:gear byte]))]
+                            (if (zero? (bit-and fingerprint mask))
+                              (reduced
+                               {:data (.toByteArray baos)
+                                :fingerprint fingerprint
+                                :offset pos
+                                :length (+ 2 offset)})
+                              fingerprint)))))
+                    0
+                    indices))))))
+
+(extend BufferedInputStream
   RabinHashable
   {:-hash-seq
    (fn [^BufferedInputStream this {:keys [chunk-fn] :or {chunk-fn chunker} :as ctx}]
      (lazy-seq
       (when (pos? (.available this))
         (when-let [{:keys [length] :as chunk} (chunk-fn this ctx)]
-          ;; (prn chunk ctx)
+          #_(prn chunk ctx)
           (cons chunk (-hash-seq this (update ctx :pos (fnil + 0) length)))))))})
 
 (extend InputStream
@@ -141,10 +207,27 @@
   {:-hash-seq
    (fn [^File this ctx]
      (when (and (.exists this) (.isFile this))
-       (-hash-seq (io/input-stream this) ctx)))})
+       #_(prn :f this (.length this))
+       (try
+         (doall (-hash-seq (io/input-stream this) ctx))
+         (catch Exception e
+           (prn this e)))))})
 
 (extend String
   RabinHashable
   {:-hash-seq
    (fn [^String this ctx]
      (-hash-seq (.getBytes this) ctx))})
+
+(comment
+  "data/enron/maildir/arnold-j/deleted_items/397."
+  "data/enron/maildir/arnold-j/inbox/34."
+  "data/enron/maildir/arnold-j/discussion_threads/81."
+  "data/enron/maildir/arnold-j/vulcan_signs/2."
+
+  "data/enron/maildir/arnold-j/notes_inbox/9."
+
+  (def f (io/file "/Users/ddouglass/src/clj-rabin/data/enron/maildir/arnold-j/vulcan_signs/2."))
+  (-hash-seq f {})
+
+  nil)
