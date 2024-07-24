@@ -1,5 +1,5 @@
 (ns clj-rabin.core
-  (:require [clj-rabin.hash :refer [lsb-zero? input-stream->hash-seq]]
+  (:require [clj-rabin.hash :refer [do-rabin-input-stream lsb-zero?]]
             [clojure.java.io :as io])
   (:import (java.io InputStream)))
 
@@ -15,9 +15,45 @@
   :prime       Rabin Polynomial constant
   :q           Modulus"
   [^InputStream is & {:keys [bottom-n] :or {bottom-n 12} :as opts}]
-  (filter
-    #(lsb-zero? (last %) bottom-n)
-    (input-stream->hash-seq is opts)))
+  (let [chunks (atom [])]
+    (do-rabin-input-stream
+      #(when-let [emit? (lsb-zero? (last %) bottom-n)]
+         (swap! chunks conj %)
+         emit?)
+      is
+      opts)
+    @chunks))
+
+(comment
+  (use 'criterium.core)
+
+  ; ~6mb
+  (defn bench-wallpaper
+    [])
+  (let [file (io/file "/home/mach/Downloads/Fedora-KDE-Live-x86_64-40/fedora.iso")
+        then (System/currentTimeMillis)
+        _ (chunk-input-stream (io/input-stream file) :buf-size 2000000)
+        now (System/currentTimeMillis)]
+    (- now then))
+
+  (let [file (io/file "/home/mach/Downloads/Fedora-KDE-Live-x86_64-40/fedora.iso")
+        then (System/currentTimeMillis)
+        _ (doall (fastcdc-chunk (.toPath file)))
+        now (System/currentTimeMillis)]
+    (- now then))
+
+
+  (with-progress-reporting
+    (quick-bench
+      (bench-wallpaper)))
+  (defn fastcdc-chunk
+    [^Path p]
+    (let [nfr-chunker (-> (ChunkerBuilder.)
+                          (.nlFiedlerRust)
+                          (.build))]
+      (iterator-seq (-> nfr-chunker
+                        (.chunk p)
+                        (.iterator))))))
 
 (comment
   (require '[clojure.java.io :as io])

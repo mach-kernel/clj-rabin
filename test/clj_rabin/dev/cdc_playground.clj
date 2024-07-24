@@ -9,7 +9,7 @@
 
 (defn file->chunks
   [^File file & [bytes-read]]
-  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 14)
+  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 16 :buf-size 5000000)
                  (map (fn [[i h]] [(inc i) h]))
                  (cons [0 nil]))
         cdc (concat cdc [[(.length file) nil]])
@@ -29,6 +29,7 @@
 
 (defn load-dataset!
   [path ds-atom]
+  (reset! ds-atom nil)
   (let [bytes-read (atom 0)
         file-queue (async/chan)
         chunk-queue (async/chan)
@@ -68,12 +69,12 @@
                  (rd/mean :size)}
                 ds))
 
+(def chunks
+  (atom nil))
+
 (comment
-  (def chunks
-    (atom nil))
 
-  (load-dataset! "data/raga" chunks)
-
+  (load-dataset! "data/tiktok/videos" chunks)
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)
         stats-cdc (-> @chunks (ds/unique-by-column :sha256) chunk-ds->agg-stats)
@@ -87,11 +88,11 @@
         blocks (first (map rows->long (ds/rows stats-per-file)))
         reduced-bytes (- (:total-bytes all)
                          (:total-bytes cdc))]
-    {:all all
-     :cdc cdc
+    {:all    all
+     :cdc    cdc
      :blocks blocks
-     :diff {:reduced-bytes reduced-bytes
-            :reduced-percent (->> (:total-bytes all)
-                                  (/ reduced-bytes)
-                                  (* 100)
-                                  double)}}))
+     :diff   {:reduced-bytes   reduced-bytes
+              :reduced-percent (->> (:total-bytes all)
+                                    (/ reduced-bytes)
+                                    (* 100)
+                                    double)}}))
