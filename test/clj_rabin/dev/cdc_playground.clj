@@ -9,10 +9,10 @@
 
 (defn file->chunks
   [^File file & [bytes-read]]
-  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :bottom-n 16 :buf-size 5000000)
+  (let [cdc (->> (r/chunk-input-stream (io/input-stream file) :mask 0x1FFF :buf-size 5000000)
                  (map (fn [[i h]] [(inc i) h]))
                  (cons [0 nil]))
-        cdc (concat cdc [[(.length file) nil]])
+        cdc (concat cdc [[(.length file) "n/a"]])
         raf (RandomAccessFile. file "r")]
     (for [[[start _] [end rabin]] (partition-all 2 1 cdc)
           :when (not (nil? end))
@@ -72,9 +72,9 @@
 (def chunks
   (atom nil))
 
-(comment
-
-  (load-dataset! "data/tiktok/videos" chunks)
+(defn load-and-stats!
+  [path]
+  (load-dataset! path chunks)
   (let [rows->long (fn [r] (into {} (map (fn [[k v]] [k (long v)])) r))
         stats-all (chunk-ds->agg-stats @chunks)
         stats-cdc (-> @chunks (ds/unique-by-column :sha256) chunk-ds->agg-stats)
@@ -96,3 +96,7 @@
                                     (/ reduced-bytes)
                                     (* 100)
                                     double)}}))
+
+(comment
+  (load-and-stats! "data/natural_images"))
+

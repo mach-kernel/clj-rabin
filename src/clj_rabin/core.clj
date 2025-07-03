@@ -1,5 +1,5 @@
 (ns clj-rabin.core
-  (:require [clj-rabin.hash :refer [do-rabin-input-stream lsb-zero?]]
+  (:require [clj-rabin.hash :refer [do-rabin-input-stream ->hash-context]]
             [clojure.java.io :as io])
   (:import (java.io InputStream)))
 
@@ -9,19 +9,19 @@
   impacts how many windows are emitted; some inputs emit no chunks.
 
   opts:
-  :bottom-n LSB mask size for emitting a new chunk
-  :buf-size BufferedInputStream byte[] array size
+  :mask        Mask for emitting a new chunk
+  :buf-size    BufferedInputStream byte[] array size
   :window-size Sliding window size
   :prime       Rabin Polynomial constant
   :q           Modulus"
-  [^InputStream is & {:keys [bottom-n] :or {bottom-n 12} :as opts}]
+  [^InputStream is & {:keys [mask] :or {mask 0x1FFF} :as opts}]
   (let [chunks (atom [])]
     (do-rabin-input-stream
-      #(when-let [emit? (lsb-zero? (last %) bottom-n)]
+      #(if (zero? (bit-and ^long (last %) ^long mask))
          (swap! chunks conj %)
-         emit?)
+         false)
       is
-      opts)
+      (->hash-context opts))
     @chunks))
 
 (comment
@@ -59,12 +59,12 @@
   (require '[clojure.java.io :as io])
   (import '(java.io File))
 
-  (count (chunk-input-stream
-           (io/input-stream (io/file "data/enron.tar.gz"))
-           :bottom-n 14))
+  (time
+    (count (chunk-input-stream
+             (io/input-stream (io/file "data/enron.tar.gz")))))
 
   ; CDC a random file
   (let [file (->> (file-seq (io/file "data/maildir"))
                   (filter File/isFile)
                   (rand-nth))]
-    (chunk-input-stream (io/input-stream file))))
+    [file (chunk-input-stream (io/input-stream file))]))

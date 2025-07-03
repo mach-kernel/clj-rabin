@@ -1,5 +1,4 @@
 (ns clj-rabin.hash
-  (:require [clojure.java.io :as io])
   (:import (clojure.lang PersistentVector)
            (java.io BufferedInputStream InputStream)))
 
@@ -8,61 +7,52 @@
    q (modulus)        : should be sufficiently large to avoid collisions, also prime
    window-size (bytes): can be anything (but as little as 16 bytes is 'enough')"
   {:prime          (long 257)
-   :q              (long 153191)                            ;Integer/MAX_VALUE
-   :window-size    (int 32)
+   :q              (long 153191)
+   :window-size    (int 48)
    :min-chunk-size (int 3000)})
 
 (defn mod-pow
   ^long
   [^long a ^long b ^long q]
-  (reduce (fn [^long a ^long b]
-            (mod ^long (* a b) q)) 1 (repeat b a)))
-
-(def range-vec
-  (memoize (fn ^PersistentVector
-             [s & [e]]
-             (into [] (if e
-                        (range s e)
-                        (range s))))))
-
-(defn lsb-zero?
-  "Are the bottom n bits 0?"
-  [^long hash ^Integer n]
-  (-> hash
-      (unsigned-bit-shift-right ^long n)
-      (bit-shift-left ^long n)
-      (bit-and ^long hash)
-      (= hash)))
+  (loop [i 0 p (long 1)]
+    (if-not (< i b)
+      p
+      (recur (inc i) (mod (unchecked-multiply ^long p a) q)))))
 
 (defn ->pow-byte-table
   "Returns a vector of (pow * out-byte % q) for 00..FF"
   [^long pow ^long q]
   (mapv
     (fn [b]
-      ^long (mod (* ^long pow ^long b) ^long q))
+      ^long (mod (unchecked-multiply ^long pow ^long b) ^long q))
     (range 0 256)))
 
 (defn ->hash-context
   "Given a bag of Rabin parameter overrides, prepare a hashing context"
   [ctx]
-  (let [{:keys [^long window-size ^long prime ^long q] :as ctx} (merge default-ctx ctx)
+  (let [{:keys [^long window-size ^long prime ^long q ^long mask] :as ctx} (merge default-ctx ctx)
         pow (mod-pow prime window-size q)
-        pow-table (->pow-byte-table pow q)]
-    (assoc ctx :pow pow
-               :pow-table pow-table)))
+        pow-table (->pow-byte-table pow q)
+        ctx (assoc ctx :pow pow
+                       :pow-table pow-table
+                       :min-chunk-size (int (* mask 0.2)))]
+    ctx))
 
 (defn poly-hash
   "Compute the polynomial hash for a window
   P^w*a[i] + P^w-1[i+1] + ..."
   ^long
-  [{:keys [^long window-size ^long prime ^long q]} ^bytes bs]
-  (let [hash (reduce (fn [^long acc ^long i]
-                       (-> (mod-pow prime (- (dec window-size) i) q)
+  [{:keys [^long window-size ^long prime ^long q ^long start]} ^bytes bs]
+  (let [w (dec window-size)
+        start (or start 0)
+        stop  (min (alength bs) (+ start window-size))]
+    (loop [i start
+           hash (long 0)]
+      (if-not (< i stop)
+        (mod hash q)
+        (recur (inc i) (-> (mod-pow prime (- w i) q)
                            (* ^byte (nth bs i))
-                           (+ acc)))
-                     (long 0)
-                     (range-vec window-size))]
-    (mod hash q)))
+                           (+ ^long hash)))))))
 
 (defn slide-roll-hash
   "Increment the hash given the byte entering the window (in-byte)
@@ -95,22 +85,27 @@
          ^long window-size (if (>= window-size (long (alength bs)))
                              (dec buf-size)
                              window-size)
-         start-hash (poly-hash ctx bs)
          start (dec window-size)]
-     (when-not (f start start-hash)
-       (loop [i (inc start)
-              prev-hash start-hash]
-         (when (< i buf-size)
-           (let [roll-hash (slide-roll-hash
+     (loop [i (inc start)
+            prev-hash nil]
+       (when (< i buf-size)
+         (let [roll-hash (if prev-hash
+                           (slide-roll-hash
                              ctx
                              prev-hash
                              ; out-byte
                              ^byte (nth bs (- i window-size))
                              ; in-byte
-                             ^byte (nth bs i))]
-             (recur (if (f i roll-hash)
-                      (+ ^long i ^long min-chunk-size)
-                      (inc i)) ^long roll-hash))))))))
+                             ^byte (nth bs i))
+                           (poly-hash (assoc ctx :start i) bs))]
+           ;(f i roll-hash)
+           (let [chunk? (f i roll-hash)
+                 next-i (if chunk?
+                          (+ ^long i ^long min-chunk-size)
+                          (inc i))
+                 next-h (when-not chunk?
+                          roll-hash)]
+             (recur next-i next-h))))))))
 
 (defn byte-array->hash-seq
   "Given a rabin context and some bytes, emit a seq of [[index rabin-hash] ...]
@@ -138,7 +133,7 @@
            [i (slide-roll-hash ctx acc out-byte in-byte)]))
        ; the first window starts at a[len(window_sz) - 1]
        [(dec window-size) (poly-hash ctx bs)]
-       (range-vec window-size buf-size)))))
+       (range window-size buf-size)))))
 
 (defn do-rabin-input-stream
   "Given an arbitrarily large sequence, emit a sequence of rabin hashes at
@@ -149,8 +144,7 @@
   ([f ^InputStream input-stream]
    (do-rabin-input-stream f input-stream {}))
   ([f ^BufferedInputStream input-stream {:keys [buf-size] :or {buf-size 1000000} :as ctx}]
-   (let [ctx (->hash-context ctx)
-         bis (if (instance? BufferedInputStream input-stream)
+   (let [bis (if (instance? BufferedInputStream input-stream)
                input-stream
                (BufferedInputStream. input-stream))
          pos (atom (long 0))
@@ -177,16 +171,15 @@
      0
      ctx))
   ([^BufferedInputStream bis ^long pos {:keys [buf-size] :or {buf-size 1000000} :as ctx}]
-   (let [ctx (->hash-context ctx)]
-     (when (pos? (.available bis))
-       (lazy-seq
-         (let [buf (byte-array buf-size)
-               bytes-read (.read bis buf 0 buf-size)]
-           (concat (->> buf
-                        (byte-array->hash-seq (assoc ctx :buf-size bytes-read))
-                        (map (fn [[^long i h]]
-                               [(+ pos i) h])))
-                   (input-stream->hash-seq bis (+ pos bytes-read) ctx))))))))
+   (when (pos? (.available bis))
+     (lazy-seq
+       (let [buf (byte-array buf-size)
+             bytes-read (.read bis buf 0 buf-size)]
+         (concat (->> buf
+                      (byte-array->hash-seq (assoc ctx :buf-size bytes-read))
+                      (map (fn [[^long i h]]
+                             [(+ pos i) h])))
+                 (input-stream->hash-seq bis (+ pos bytes-read) ctx)))))))
 
 (comment
   (use 'criterium.core)
